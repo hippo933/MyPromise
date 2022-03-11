@@ -1,0 +1,11 @@
+[x] Promise
+[x] then
+[] catch
+[] all
+[] race
+[] finally
+[] any
+[] resolve
+[] reject
+[] try
+[] allSettled
