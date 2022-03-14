@@ -1,68 +1,61 @@
-/**
- * 1. Promise 就是一个类 在执行这个类的时候需要传递一个执行器进去 执行器会立即执行
- * 2. Promise 汇总有个三种状态 分别为 成功 fulfilled 失败 rejected 等待 pending
- *    pending -> fulilled
- *    pendign -> rejected
- * 3. resolve 和reject 函数是用来改变状态的
- *    resolve: fulilled
- *    reject: rejected
- *    状态不可逆
- * 4. then方法内部做的事情就判断状态如果状态是成功 调用成功的回调函数 如果状态是失败 调用失败回调
- * 5. then成功回调有一个参数表示成功之后的值 then失败回调有一个参数表示失败后的原因
- */
-
-const PENDING = 'pending'
-const FULILLED = 'fulilled'
-const REJECTED = 'rejected'
+const PENDING = 'PENDING'
+const FULFILLED = 'FULFILLED'
+const REJECTED = 'REJECTED'
 
 class MyPromise {
-  status = PENDING
-  value = undefined
-  reason = undefined
-  successCallbacks = []
-  failCallbacks = []
+  constructor(executor) {
+    this.status = PENDING
+    this.value = undefined
+    this.reason = undefined
 
-  constructor(exectuor) {
+    this.successCallbacks = []
+    this.failCallbacks = []
+
+    const resolve = (value) => {
+      if (value instanceof MyPromise) {
+        return value.then(resolve, reject)
+      }
+      
+      if (this.status !== PENDING) return
+      this.status = FULFILLED
+      this.value = value
+
+      while (this.successCallbacks.length) {
+        this.successCallbacks.shift()()
+      }
+    }
+
+    const reject = (reason) => {
+      if (this.status !== PENDING) return
+      this.status = REJECTED
+      this.reason = reason
+
+      while (this.failCallbacks.length) {
+        this.failCallbacks.shift()()
+      }
+    }
+
     try {
-      exectuor(this.resolve, this.reject)
+      executor(resolve, reject)
     } catch (e) {
       this.reject(e)
     }
   }
 
-  resolve = (value) => {
-    // 如果状态不是 pending 阻止程序继续运行
-    if (this.status !== PENDING) return
-    // 状态改为成功
-    this.status = FULILLED
-    this.value = value
-    while (this.successCallbacks.length) {
-      this.successCallbacks.shift()(this.value)
-    }
-  }
-
-  reject = (reason) => {
-    // 如果状态不是 pending 阻止程序继续运行
-    if (this.status !== PENDING) return
-    // 状态改为成功
-    this.status = REJECTED
-    this.reason = reason
-    while (this.failCallbacks.length) {
-      this.failCallbacks.shift()(this.reason)
-    }
-  }
-
   then(onSuccessCallback, onFailCallback) {
-    // 如果没有传递成功或者失败的回调 就把当前的结果传递给下一个Promise
-    onSuccessCallback = onSuccessCallback ? onSuccessCallback : value => value
-    onFailCallback = onFailCallback ? onFailCallback : reason => {throw reason}
-
-    let promise2 = new MyPromise((resolve, reject) => {
-      if (this.status === FULILLED) {
+    onSuccessCallback = typeof onSuccessCallback === 'function' ? onSuccessCallback : (value) => value
+    onFailCallback =
+      typeof onFailCallback === 'function'
+        ? onFailCallback
+        : (reason) => {
+            throw reason
+          }
+    const promise2 = new MyPromise((resolve, reject) => {
+      if (this.status === FULFILLED) {
         setTimeout(() => {
           try {
-            let x = onSuccessCallback(this.value)
-            resolvePromise(promise2, x, resolve, reject) 
+            const x = onSuccessCallback(this.value)
+            resolvePromise(promise2, x, resolve, reject)
           } catch (e) {
             reject(e)
           }
@@ -70,20 +63,18 @@ class MyPromise {
       } else if (this.status === REJECTED) {
         setTimeout(() => {
           try {
-            let x = onFailCallback(this.reason)
+            const x = onFailCallback(this.reason)
             resolvePromise(promise2, x, resolve, reject)
           } catch (e) {
             reject(e)
           }
         }, 0)
       } else {
-        // 等待状态
-        // 将成功回调和失败回调先存起来
         this.successCallbacks.push(() => {
           setTimeout(() => {
             try {
-              let x = onSuccessCallback(this.value)
-              resolvePromise(promise2, x, resolve, reject) 
+              const x = onSuccessCallback(this.value)
+              resolvePromise(promise2, x, resolve, reject)
             } catch (e) {
               reject(e)
             }
@@ -92,7 +83,7 @@ class MyPromise {
         this.failCallbacks.push(() => {
           setTimeout(() => {
             try {
-              let x = onFailCallback(this.reason)
+              const x = onFailCallback(this.reason)
               resolvePromise(promise2, x, resolve, reject)
             } catch (e) {
               reject(e)
@@ -101,46 +92,147 @@ class MyPromise {
         })
       }
     })
-
     return promise2
   }
 
-  static all(array) {
-    return new MyPromise((resolve, reject) => {
+  catch(callback) {
+    return this.then(undefined, callback)
+  }
 
-      const result = []
+  finally(callback) {
+    return this.then(
+      (value) => {
+        return MyPromise.resolve(callback()).then(() => value)
+      },
+      (reason) => {
+        return MyPromise.resolve(callback()).then(() => {
+          throw reason
+        })
+      }
+    )
+  }
+
+  static resolve(value) {
+    return new MyPromise((resolve) => {
+      resolve(value)
+    })
+  }
+
+  static reject(value) {
+    return new MyPromise((_, reject) => {
+      reject(value)
+    })
+  }
+
+  static all(values) {
+    if (!Array.isArray(values)) {
+      const type = typeof values
+      return new TypeError(`TypeError: ${type} ${values} is not iterable`)
+    }
+
+    return MyPromise((resolve, reject) => {
       let index = 0
-      function addData(key, value) {
+      const result = []
+
+      function addData(key, val) {
         index++
-        result[key] = value
-        if (index === array.length) {
+        result[key] = val
+
+        if (index === values.length) {
           resolve(result)
         }
       }
-      for (let i = 0; i < array.length; i++) {
-        const current = array[i]
+
+      for (let i = 0; i < values.length; i++) {
+        const current = values[i]
         if (current instanceof MyPromise) {
-          // promise对象
-          current.then(value => addData(i, value), reason => reject(reason))
+          current.then((value) => addData(i, value), reject)
         } else {
-          // 普通值
           addData(i, current)
         }
       }
     })
   }
+
+  static race(values) {
+    return new MyPromise((resolve, reject) => {
+      for (let i = 0; i < values.length; i++) {
+        const current = values[i]
+        if (current instanceof MyPromise) {
+          current.then(resolve, reject)
+        } else {
+          resolve(current)
+        }
+      }
+    })
+  }
+
+  // static allSettled(values) {
+  //   return new MyPromise((resolve) => {
+  //     const result = []
+  //     let index = 0
+  //     function addData(key, val) {
+  //       index++
+  //       result[key] = val
+  //       if (index === values.length) {
+  //         resolve(result)
+  //       }
+  //     }
+  //     for (let i = 0; i < values.length; i++) {
+  //       const current = values[i]
+  //       if (current instanceof MyPromise) {
+  //         current.then(
+  //           (value) => addData(i, { status: 'fulfilled', value }),
+  //           (reason) => addData(i, { status: 'rejected', reason })
+  //         )
+  //       } else {
+  //         addData(i, { status: 'fulfilled', value: current })
+  //       }
+  //     }
+  //   })
+  // }
+}
+
+MyPromise.defer = MyPromise.deferred = function () {
+  let dtd = {}
+  dtd.promise = new MyPromise((resolve, reject) => {
+    dtd.resolve = resolve
+    dtd.reject = reject
+  })
+  return dtd
 }
 
 function resolvePromise(promise2, x, resolve, reject) {
   if (promise2 === x) {
-    // 防止
     return reject(new TypeError('Chaining cycle detected for promise #<Promise>'))
   }
-  if (x instanceof MyPromise) {
-    // promise对象
-    x.then(resolve, reject)
+  let called
+  if ((typeof x === 'object' && x != null) || typeof x === 'function') {
+    try {
+      let then = x.then
+      if (typeof then === 'function') {
+        then.call(
+          x,
+          (y) => {
+            if (called) return
+            called = true
+            resolvePromise(promise2, y, resolve, reject)
+          },
+          (r) => {
+            if (called) return
+            called = true
+            reject(r)
+          }
+        )
+      } else {
+        resolve(x)
+      }
+    } catch (e) {
+      if (called) return
+      called = true
+      reject(e)
+    }
   } else {
-    // 普通值
     resolve(x)
   }
 }
